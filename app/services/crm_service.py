@@ -9,6 +9,7 @@ from app.models.crm import (
     ConversationMessage, ConversationSession, 
     ConversationResponse, ConversationCategory
 )
+from app.models.upload import FileMetadata
 from app.config import MONGODB_URI, MONGODB_DB
 
 class CRMService:
@@ -18,6 +19,7 @@ class CRMService:
         self.users: Collection = self.db["users"]
         self.sessions: Collection = self.db["sessions"]
         self.messages: Collection = self.db["messages"]
+        self.files: Collection = self.db["files"]  # New collection for file metadata
         self._init_indexes()
         # Test connection
         try:
@@ -34,6 +36,10 @@ class CRMService:
         self.messages.create_index("message_id", unique=True)
         self.messages.create_index("session_id")
         self.messages.create_index("user_id")
+        # File indexes
+        self.files.create_index("file_id", unique=True)
+        self.files.create_index("user_id")
+        self.files.create_index("vector_store_path")
 
     def create_user(self, user_data: UserCreate) -> UserResponse:
         user_id = str(uuid.uuid4())
@@ -142,6 +148,64 @@ class CRMService:
 
     def close_conversation_session(self, session_id: str) -> bool:
         result = self.sessions.update_one({"session_id": session_id}, {"$set": {"is_active": False, "updated_at": datetime.utcnow()}})
+        return result.modified_count > 0
+
+    # File management methods
+    def save_file_metadata(self, file_id: str, user_id: str, filename: str, file_type: str, file_size: int, vector_store_path: str) -> bool:
+        """Save file metadata to MongoDB"""
+        try:
+            doc = {
+                "file_id": file_id,
+                "user_id": user_id,
+                "filename": filename,
+                "file_type": file_type,
+                "file_size": file_size,
+                "vector_store_path": vector_store_path,
+                "uploaded_at": datetime.utcnow(),
+                "is_active": True
+            }
+            self.files.insert_one(doc)
+            return True
+        except Exception as e:
+            print(f"Error saving file metadata: {e}")
+            return False
+
+    def get_user_files(self, user_id: str) -> List[Dict]:
+        """Get all files uploaded by a user"""
+        cursor = self.files.find({"user_id": user_id, "is_active": True}).sort("uploaded_at", DESCENDING)
+        files = []
+        for doc in cursor:
+            files.append({
+                "file_id": doc["file_id"],
+                "filename": doc["filename"],
+                "file_type": doc["file_type"],
+                "file_size": doc["file_size"],
+                "vector_store_path": doc["vector_store_path"],
+                "uploaded_at": doc["uploaded_at"]
+            })
+        return files
+
+    def get_file_by_id(self, file_id: str) -> Optional[Dict]:
+        """Get file metadata by file_id"""
+        doc = self.files.find_one({"file_id": file_id, "is_active": True})
+        if doc:
+            return {
+                "file_id": doc["file_id"],
+                "user_id": doc["user_id"],
+                "filename": doc["filename"],
+                "file_type": doc["file_type"],
+                "file_size": doc["file_size"],
+                "vector_store_path": doc["vector_store_path"],
+                "uploaded_at": doc["uploaded_at"]
+            }
+        return None
+
+    def delete_file(self, file_id: str, user_id: str) -> bool:
+        """Soft delete a file (mark as inactive)"""
+        result = self.files.update_one(
+            {"file_id": file_id, "user_id": user_id}, 
+            {"$set": {"is_active": False}}
+        )
         return result.modified_count > 0
 
 # Global CRM service instance

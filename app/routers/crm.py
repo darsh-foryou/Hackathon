@@ -6,6 +6,7 @@ from app.models.crm import (
     ConversationResponse, ConversationCategory
 )
 from app.services.crm_service import crm_service
+from app.services.rag_service import get_user_document_summary
 
 router = APIRouter(prefix="/crm", tags=["CRM"])
 
@@ -94,4 +95,23 @@ async def get_categories():
             {"value": cat.value, "description": cat.name.lower()}
             for cat in ConversationCategory
         ]
-    } 
+    }
+
+@router.get("/documents/{user_id}")
+async def get_user_documents(user_id: str):
+    """Get user's document summary and file list"""
+    try:
+        # Validate user exists
+        user = crm_service.get_user(user_id)
+        if not user:
+            raise HTTPException(status_code=404, detail="User not found")
+        
+        # Get document summary
+        summary = get_user_document_summary(user_id)
+        
+        return {
+            "user_id": user_id,
+            "document_summary": summary
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e)) 

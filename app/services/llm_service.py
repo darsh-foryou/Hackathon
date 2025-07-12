@@ -41,8 +41,8 @@ def get_gpt_response(
         conversation_history = []
         if session_id:
             messages = crm_service.get_session_messages(session_id)
-            # Convert to OpenAI format (last 10 messages for context)
-            recent_messages = messages[-10:] if len(messages) > 10 else messages
+            # Convert to OpenAI format (last 5 messages for context)
+            recent_messages = messages[-5:] if len(messages) > 5 else messages
             conversation_history = [
                 {"role": msg.role, "content": msg.content}
                 for msg in recent_messages
@@ -55,10 +55,20 @@ def get_gpt_response(
                 # Use provided RAG context
                 rag_context_text = f"\nRelevant Information from Knowledge Base:\n{rag_context}"
             else:
-                # Search vector store for relevant context
-                relevant_docs = search_vector_store(message, top_k=3)
-                if relevant_docs:
-                    rag_context_text = f"\nRelevant Information from Knowledge Base:\n{relevant_docs}"
+                # Search user's documents for relevant context
+                relevant_docs = search_vector_store(message, user_id=user_id, top_k=3)
+                if relevant_docs and relevant_docs != "No documents found for this user." and relevant_docs != "No relevant documents found in your uploaded files.":
+                    rag_context_text = f"\nRelevant Information from Your Documents:\n{relevant_docs}"
+                else:
+                    # Fallback to general search if no user-specific documents found
+                    relevant_docs = search_vector_store(message, top_k=3)
+                    if relevant_docs and relevant_docs != "No documents have been uploaded yet." and relevant_docs != "No relevant documents found.":
+                        rag_context_text = f"\nRelevant Information from Knowledge Base:\n{relevant_docs}"
+        
+        # Truncate user_context and rag_context_text to avoid context overflow
+        max_context_chars = 1000
+        user_context = user_context[:max_context_chars]
+        rag_context_text = rag_context_text[:max_context_chars]
         
         # Build system prompt
         system_prompt = f"""You are an intelligent AI assistant integrated with a CRM system. 
@@ -73,6 +83,7 @@ def get_gpt_response(
         4. If they ask about their previous conversations, refer to the conversation history
         5. If they provide new information about themselves, acknowledge it
         6. Use the knowledge base information when relevant to their questions
+        7. If information comes from their uploaded documents, mention which document it's from
         
         {rag_context_text}
         """
@@ -106,6 +117,7 @@ def get_gpt_response(
                 "processing_time": processing_time,
                 "model_used": "gpt-3.5-turbo",
                 "rag_used": use_rag,
+                "user_specific_rag": bool(rag_context_text and "Your Documents" in rag_context_text),
                 "tokens_used": response.usage.total_tokens if hasattr(response, 'usage') else None
             })
         
@@ -116,6 +128,7 @@ def get_gpt_response(
             "rag_used": use_rag,
             "user_context_used": bool(user),
             "conversation_history_used": bool(conversation_history),
+            "user_specific_rag": bool(rag_context_text and "Your Documents" in rag_context_text),
             "tokens_used": response.usage.total_tokens if hasattr(response, 'usage') else None
         }
         
@@ -135,6 +148,12 @@ def get_gpt_response(
             "response": error_response,
             "model_used": "gpt-3.5-turbo",
             "processing_time": processing_time,
+            "rag_used": False,
+            "user_context_used": False,
+            "conversation_history_used": False,
+            "user_specific_rag": False,
+            "tokens_used": None,
+            "session_id": session_id,
             "error": True
         }
 

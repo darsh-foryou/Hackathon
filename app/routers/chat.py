@@ -51,6 +51,7 @@ async def chat(request: ChatRequest):
             rag_used=response_data["rag_used"],
             user_context_used=response_data["user_context_used"],
             conversation_history_used=response_data["conversation_history_used"],
+            user_specific_rag=response_data.get("user_specific_rag", False),
             tokens_used=response_data.get("tokens_used"),
             session_id=session_id,
             error=response_data.get("error", False)

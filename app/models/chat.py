@@ -16,6 +16,7 @@ class ChatResponse(BaseModel):
     rag_used: bool
     user_context_used: bool
     conversation_history_used: bool
+    user_specific_rag: Optional[bool] = False
     tokens_used: Optional[int] = None
     session_id: Optional[str] = None
     error: Optional[bool] = False

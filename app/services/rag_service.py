@@ -5,6 +5,7 @@ import pandas as pd
 import json
 from PyPDF2 import PdfReader
 from typing import List, Optional
+import shutil
 
 from langchain.text_splitter import CharacterTextSplitter
 from langchain_community.embeddings import OpenAIEmbeddings
@@ -40,22 +41,42 @@ def create_vector_store(text: str, index_name: str):
     db.save_local(f"{VECTOR_DIR}/{index_name}")
     return True
 
-def search_vector_store(query: str, index_name: Optional[str] = None, top_k: int = 3) -> str:
+def search_vector_store(query: str, user_id: str = None, top_k: int = 3) -> str:
     """
     Search the vector store for relevant documents
+    If user_id is provided, search only user's documents
     """
     try:
         embeddings = OpenAIEmbeddings()
         
-        if index_name:
-            # Search specific index
-            index_path = f"{VECTOR_DIR}/{index_name}"
-            if os.path.exists(index_path):
-                db = FAISS.load_local(index_path, embeddings)
+        if user_id:
+            # Search user-specific documents
+            from app.services.crm_service import crm_service
+            user_files = crm_service.get_user_files(user_id)
+            
+            if not user_files:
+                return "No documents found for this user."
+            
+            # Search across all user's documents
+            all_relevant_content = []
+            for file_info in user_files:
+                vector_store_path = file_info["vector_store_path"]
+                if os.path.exists(vector_store_path):
+                    try:
+                        db = FAISS.load_local(vector_store_path, embeddings)
+                        docs = db.similarity_search(query, k=2)  # Get top 2 from each file
+                        for doc in docs:
+                            all_relevant_content.append(f"From {file_info['filename']}:\n{doc.page_content}")
+                    except Exception as e:
+                        print(f"Error searching file {file_info['filename']}: {e}")
+                        continue
+            
+            if all_relevant_content:
+                return "\n\n".join(all_relevant_content[:top_k * 2])  # Limit total results
             else:
-                return "No documents found for the specified index."
+                return "No relevant documents found in your uploaded files."
         else:
-            # Search all available indices
+            # Search all available indices (legacy behavior)
             available_indices = []
             for item in os.listdir(VECTOR_DIR):
                 if os.path.isdir(os.path.join(VECTOR_DIR, item)):
@@ -64,19 +85,19 @@ def search_vector_store(query: str, index_name: Optional[str] = None, top_k: int
             if not available_indices:
                 return "No documents have been uploaded yet."
             
-            # Use the first available index (you could implement more sophisticated selection)
+            # Use the first available index
             index_path = f"{VECTOR_DIR}/{available_indices[0]}"
             db = FAISS.load_local(index_path, embeddings)
-        
-        # Search for relevant documents
-        docs = db.similarity_search(query, k=top_k)
-        
-        # Combine relevant content
-        relevant_content = []
-        for i, doc in enumerate(docs, 1):
-            relevant_content.append(f"Document {i}:\n{doc.page_content}\n")
-        
-        return "\n".join(relevant_content) if relevant_content else "No relevant documents found."
+            
+            # Search for relevant documents
+            docs = db.similarity_search(query, k=top_k)
+            
+            # Combine relevant content
+            relevant_content = []
+            for i, doc in enumerate(docs, 1):
+                relevant_content.append(f"Document {i}:\n{doc.page_content}\n")
+            
+            return "\n".join(relevant_content) if relevant_content else "No relevant documents found."
         
     except Exception as e:
         return f"Error searching vector store: {str(e)}"
@@ -105,9 +126,40 @@ def delete_vector_store(index_name: str) -> bool:
     try:
         index_path = f"{VECTOR_DIR}/{index_name}"
         if os.path.exists(index_path):
-            import shutil
             shutil.rmtree(index_path)
             return True
         return False
     except Exception:
         return False
+
+def get_user_document_summary(user_id: str) -> dict:
+    """
+    Get a summary of user's uploaded documents
+    """
+    try:
+        from app.services.crm_service import crm_service
+        user_files = crm_service.get_user_files(user_id)
+        
+        summary = {
+            "total_files": len(user_files),
+            "file_types": {},
+            "total_size": 0,
+            "files": []
+        }
+        
+        for file_info in user_files:
+            file_type = file_info["file_type"]
+            file_size = file_info["file_size"]
+            
+            summary["file_types"][file_type] = summary["file_types"].get(file_type, 0) + 1
+            summary["total_size"] += file_size
+            summary["files"].append({
+                "filename": file_info["filename"],
+                "file_type": file_type,
+                "file_size": file_size,
+                "uploaded_at": file_info["uploaded_at"].isoformat()
+            })
+        
+        return summary
+    except Exception as e:
+        return {"error": str(e)}
