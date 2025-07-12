@@ -29,7 +29,7 @@ graph TB
     I --> J[Vector Store - FAISS]
     
     E --> G
-    G --> K[SQLite Database]
+    G --> K[MongoDB Database]
     
     L[Document Upload] --> I
     I --> M[Text Extraction]
