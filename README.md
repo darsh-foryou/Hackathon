@@ -326,14 +326,3 @@ The API provides metadata in responses including:
 ## 📄 License
 
 This project is licensed under the MIT License.
-
-## 🆘 Support
-
-For support and questions:
-- Create an issue in the repository
-- Check the API documentation at `/docs`
-- Review the example usage in this README
-
----
-
-**Note**: This is a hackathon project. For production use, additional security, error handling, and testing should be implemented.
